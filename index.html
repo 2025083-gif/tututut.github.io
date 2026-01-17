@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ツムツム風：完全版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f0f4f8;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            transition: background-color 0.5s;
+        }
+
+        /* フィーバー時の背景変化 */
+        body.fever-mode {
+            background-color: #222;
+        }
+
+        #game-container {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 1;
+        }
+
+        /* --- UIレイヤー --- */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-sizing: border-box;
+            padding: 10px 15px;
+        }
+
+        /* 上部ステータスバー */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .status-box {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 5px 12px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            color: #333;
+            font-weight: bold;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 50px;
+        }
+        
+        .status-label { font-size: 10px; color: #666; }
+        .status-value { font-size: 20px; }
+
+        /* タイマー演出 */
+        #time-box.time-added {
+            animation: popGreen 0.5s ease;
+            color: #00cc00;
+        }
+
+        /* フィーバーゲージ */
+        #fever-area {
+            position: absolute;
+            top: 80px; left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            text-align: center;
+        }
+        #fever-label {
+            font-size: 12px; color: #ff6b6b; font-weight: bold;
+            text-shadow: 1px 1px 0 #fff; margin-bottom: 2px;
+        }
+        #fever-container {
+            width: 100%; height: 8px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 4px;
+            border: 2px solid #fff;
+            overflow: hidden;
+        }
+        #fever-bar {
+            width: 0%; height: 100%;
+            background: linear-gradient(90deg, #ff9a9e, #fecfef);
+            transition: width 0.2s;
+        }
+
+        /* スキル選択ボタン（テスト用切り替え） */
+        .skill-selector {
+            pointer-events: auto;
+            background: rgba(255,255,255,0.8);
+            padding: 4px;
+            border-radius: 8px;
+            margin-top: 5px;
+            display: flex;
+            gap: 4px;
+            justify-content: center;
+        }
+        .skill-opt {
+            border: 1px solid #ccc; background: #fff;
+            padding: 4px 8px; border-radius: 4px;
+            font-size: 10px; cursor: pointer;
+        }
+        .skill-opt.active { background: #ff6b6b; color: white; border-color: #ff6b6b; }
+
+        /* フッターエリア */
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding-bottom: 20px;
+        }
+
+        /* スキル発動ボタン */
+        #skill-btn {
+            pointer-events: auto;
+            width: 75px; height: 75px;
+            border-radius: 50%;
+            background-color: #ccc;
+            border: 4px solid #fff;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 13px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.1s;
+        }
+        #skill-btn:active { transform: scale(0.95); }
+        #skill-btn.ready {
+            background-color: #ffaa00;
+            animation: pulse 1.5s infinite;
+            cursor: pointer;
+            box-shadow: 0 0 15px #ffcc33;
+            border-color: #ffe082;
+        }
+        #skill-mask {
+            position: absolute; bottom: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.4);
+            pointer-events: none;
+            transition: height 0.2s;
+        }
+
+        #retry-btn {
+            pointer-events: auto;
+            padding: 8px 20px;
+            background: #666; color: white;
+            border: none; border-radius: 20px;
+            font-size: 12px;
+        }
+
+        /* ポップアップメッセージ */
+        .popup-msg {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0.5);
+            font-size: 40px; font-weight: 900;
+            color: #ffeb3b;
+            text-shadow: 0 0 10px #ff5722, 2px 2px 0 #fff;
+            opacity: 0;
+            pointer-events: none;
+            white-space: nowrap;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 20;
+        }
+        .popup-msg.show { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+
+        /* ゲームオーバー画面 */
+        #game-over {
+            display: none;
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 50;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white; pointer-events: auto;
+        }
+        #game-over h1 { margin: 0 0 20px 0; font-size: 40px; }
+        #final-score { font-size: 60px; color: #ffeb3b; font-weight: bold; }
+
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        @keyframes popGreen { 0% { transform: scale(1); } 50% { transform: scale(1.4); color: #0f0; } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body>
+
+    <div id="game-container"></div>
+
+    <div id="ui-layer">
+        <div id="fever-area">
+            <div id="fever-label">FEVER GAUGE</div>
+            <div id="fever-container"><div id="fever-bar"></div></div>
+        </div>
+        
+        <div id="msg" class="popup-msg">FEVER!!</div>
+
+        <div class="header">
+            <div>
+                <div class="status-box">
+                    <span class="status-label">SCORE</span>
+                    <span class="status-value" id="score">0</span>
+                </div>
+                <div class="skill-selector">
+                    <button class="skill-opt active" onclick="changeSkill('center')">中央</button>
+                    <button class="skill-opt" onclick="changeSkill('vertical')">縦</button>
+                    <button class="skill-opt" onclick="changeSkill('connect')">変化</button>
+                </div>
+            </div>
+
+            <div class="status-box" id="time-box">
+                <span class="status-label">TIME</span>
+                <span class="status-value" id="time">60</span>
+            </div>
+
+            <div class="status-box">
+                <span class="status-label">LEVEL</span>
+                <span class="status-value" id="level">1</span>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div id="skill-btn" onclick="triggerSkill()">
+                SKILL
+                <div id="skill-mask"></div>
+            </div>
+            <button id="retry-btn" onclick="location.reload()">RETRY</button>
+        </div>
+    </div>
+
+    <div id="game-over">
+        <h1>TIME UP</h1>
+        <div>Final Score</div>
+        <div id="final-score">0</div>
+        <button id="retry-btn" style="margin-top:30px; font-size:18px; padding:12px 30px;" onclick="location.reload()">PLAY AGAIN</button>
+    </div>
+
+    <script>
+        // --- ゲーム設定 ---
+        const WIDTH = window.innerWidth;
+        const HEIGHT = window.innerHeight;
+        const BALL_RADIUS = 28; 
+        const SEARCH_RADIUS = 50; // 高感度用の検索半径
+        const CONNECT_DISTANCE = BALL_RADIUS * 3.5; // 繋がりやすさの距離
+        const COLORS = ['#FF9AA2', '#FFB7B2', '#FFDAC1', '#E2F0CB', '#B5EAD7', '#C7CEEA'];
+
+        // パラメータ
+        const MAX_SKILL = 20; // スキル発動必要数
+        const MAX_FEVER = 30; // フィーバー発動必要数
+        const FEVER_ADD_TIME = 5; // フィーバー時の追加時間
+        const FEVER_DURATION = 5000; // フィーバー継続時間(ms)
+
+        // 状態変数
+        let score = 0;
+        let level = 1;
+        let timeLeft = 60;
+        let isPlaying = true;
+        let skillCharge = 0;
+        let feverCharge = 0;
+        let isFever = false;
+        let currentSkill = 'center'; // center, vertical, connect
+        let isRainbow = false; // "変化"スキル発動中か
+
+        // --- Matter.js 初期化 ---
+        const { Engine, Render, Runner, World, Bodies, Composite, Events, Mouse, Vector } = Matter;
+        const engine = Engine.create();
+        const world = engine.world;
+        const container = document.getElementById('game-container');
+
+        const render = Render.create({
+            element: container, engine: engine,
+            options: { width: WIDTH, height: HEIGHT, wireframes: false, background: 'transparent', pixelRatio: window.devicePixelRatio }
+        });
+
+        // 壁（画面外に配置）
+        const walls = [
+            Bodies.rectangle(WIDTH/2, HEIGHT+100, WIDTH, 200, { isStatic: true }),
+            Bodies.rectangle(-50, HEIGHT/2, 100, HEIGHT*2, { isStatic: true }),
+            Bodies.rectangle(WIDTH+50, HEIGHT/2, 100, HEIGHT*2, { isStatic: true })
+        ];
+        World.add(world, walls);
+
+        // ツム生成・補充
+        function createBall(x, y) {
+            const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            return Bodies.circle(x, y, BALL_RADIUS, {
+                restitution: 0.4, friction: 0.005, label: color,
+                render: { fillStyle: color, strokeStyle: '#888', lineWidth: 1 }
+            });
+        }
+
+        function fillBalls(count) {
+            const balls = [];
+            for(let i=0; i<count; i++){
+                balls.push(createBall(Math.random()*(WIDTH-40)+20, -Math.random()*HEIGHT - 50));
+            }
+            World.add(world, balls);
+        }
+
+        // 初期配置（画面サイズに合わせて計算）
+        const initialCount = Math.floor((WIDTH * HEIGHT) / (Math.PI * BALL_RADIUS**2) * 0.65);
+        fillBalls(initialCount);
+
+        // --- タイマー処理 ---
+        const timerId = setInterval(() => {
+            if(!isPlaying) return;
+            timeLeft--;
+            if(timeLeft < 0) timeLeft = 0;
+            document.getElementById('time').innerText = timeLeft;
+            if(timeLeft <= 0) endGame();
+        }, 1000);
+
+        function endGame() {
+            isPlaying = false;
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('game-over').style.display = 'flex';
+        }
+
+        // --- フィーバー処理 ---
+        function addFever(amount) {
+            if(isFever) return;
+            feverCharge += amount;
+            if(feverCharge >= MAX_FEVER) startFever();
+            
+            // ゲージ表示
+            const pct = Math.min(100, (feverCharge/MAX_FEVER)*100);
+            document.getElementById('fever-bar').style.width = pct + '%';
